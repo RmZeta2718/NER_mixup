@@ -22,11 +22,11 @@ tags: list of tags.['O O B-MISC ...', '...']
 y: encoded tags. [N, T]. int64
 seqlens: list of seqlens. [45, 49, 10, 50, ...]
 '''
+from pytorch_pretrained_bert import BertTokenizer
+
 import numpy as np
 import torch
 from torch.utils import data
-
-from pytorch_pretrained_bert import BertTokenizer
 
 tokenizer: BertTokenizer
 tokenizer = BertTokenizer.from_pretrained( 'bert-base-cased', do_lower_case=False)  # type: ignore

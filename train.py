@@ -13,6 +13,63 @@ from objprint import op
 import logging
 
 
+def main():
+    op.config(color=True, line_number=True, arg_name=True)
+    op.install()
+    logging.basicConfig(level=logging.INFO)
+    data_dir = 'data/CoNLL2003'
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--lr", type=float, default=5e-5)
+    parser.add_argument("--n_epochs", type=int, default=3)
+    parser.add_argument("--finetuning", dest="finetuning", action="store_true")
+    parser.add_argument("--logdir", type=str, default="checkpoints")
+    parser.add_argument("--trainset", type=str,
+                        default=f"{data_dir}/train.txt")
+    parser.add_argument("--validset", type=str,
+                        default=f"{data_dir}/valid.txt")
+    parser.add_argument('--seed', type=int, default=0, help='random seed')
+    hp = parser.parse_args()
+
+    if hp.seed != 0:
+        torch.manual_seed(hp.seed)
+
+    device = 'cuda:2' if torch.cuda.is_available() else 'cpu'
+    # device = 'cpu'
+
+    model = Net(len(VOCAB), device, hp.finetuning).cuda(device)  # type: ignore
+    # model = nn.DataParallel(model)
+
+    train_dataset = NerDataset(hp.trainset)
+    eval_dataset = NerDataset(hp.validset)
+
+    train_iter = data.DataLoader(dataset=train_dataset,
+                                 batch_size=hp.batch_size,
+                                 shuffle=True,
+                                 num_workers=4,
+                                 collate_fn=pad)
+    eval_iter = data.DataLoader(dataset=eval_dataset,
+                                batch_size=hp.batch_size,
+                                shuffle=False,
+                                num_workers=4,
+                                collate_fn=pad)
+
+    optimizer = optim.Adam(model.parameters(), lr=hp.lr)
+    criterion = nn.CrossEntropyLoss(ignore_index=0)
+
+    for epoch in range(1, hp.n_epochs+1):
+        train(model, train_iter, optimizer, criterion)
+
+        print(f"=========eval at epoch={epoch}=========")
+        if not os.path.exists(hp.logdir):
+            os.makedirs(hp.logdir)
+        fname = os.path.join(hp.logdir, str(epoch))
+        precision, recall, f1 = eval(model, eval_iter, fname)
+
+        torch.save(model.state_dict(), f"{fname}.pt")
+        print(f"weights were saved to {fname}.pt")
+
+
 def train(model: nn.Module, iterator: data.DataLoader, optimizer: optim.Optimizer, criterion: nn.CrossEntropyLoss):
     model.train()
     for i, batch in enumerate(iterator):
@@ -123,57 +180,4 @@ def eval(model: nn.Module, iterator: data.DataLoader, f):
 
 
 if __name__ == "__main__":
-    op.config(color=True, line_number=True, arg_name=True)
-    op.install()
-    logging.basicConfig(level=logging.INFO)
-    data_dir = 'data/CoNLL2003'
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--lr", type=float, default=5e-5)
-    parser.add_argument("--n_epochs", type=int, default=3)
-    parser.add_argument("--finetuning", dest="finetuning", action="store_true")
-    parser.add_argument("--logdir", type=str, default="checkpoints")
-    parser.add_argument("--trainset", type=str,
-                        default=f"{data_dir}/train.txt")
-    parser.add_argument("--validset", type=str,
-                        default=f"{data_dir}/valid.txt")
-    parser.add_argument('--seed', type=int, default=0, help='random seed')
-    hp = parser.parse_args()
-
-    if hp.seed != 0:
-        torch.manual_seed(hp.seed)
-
-    device = 'cuda:2' if torch.cuda.is_available() else 'cpu'
-    # device = 'cpu'
-
-    model = Net(len(VOCAB), device, hp.finetuning).cuda(device)  # type: ignore
-    # model = nn.DataParallel(model)
-
-    train_dataset = NerDataset(hp.trainset)
-    eval_dataset = NerDataset(hp.validset)
-
-    train_iter = data.DataLoader(dataset=train_dataset,
-                                 batch_size=hp.batch_size,
-                                 shuffle=True,
-                                 num_workers=4,
-                                 collate_fn=pad)
-    eval_iter = data.DataLoader(dataset=eval_dataset,
-                                batch_size=hp.batch_size,
-                                shuffle=False,
-                                num_workers=4,
-                                collate_fn=pad)
-
-    optimizer = optim.Adam(model.parameters(), lr=hp.lr)
-    criterion = nn.CrossEntropyLoss(ignore_index=0)
-
-    for epoch in range(1, hp.n_epochs+1):
-        train(model, train_iter, optimizer, criterion)
-
-        print(f"=========eval at epoch={epoch}=========")
-        if not os.path.exists(hp.logdir):
-            os.makedirs(hp.logdir)
-        fname = os.path.join(hp.logdir, str(epoch))
-        precision, recall, f1 = eval(model, eval_iter, fname)
-
-        torch.save(model.state_dict(), f"{fname}.pt")
-        print(f"weights were saved to {fname}.pt")
+    main()

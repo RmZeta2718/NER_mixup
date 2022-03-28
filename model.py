@@ -13,9 +13,10 @@ bert-base-cased config: {
   "vocab_size": 28996
 }
 """
+from pytorch_pretrained_bert import BertModel
+
 import torch
 import torch.nn as nn
-from pytorch_pretrained_bert import BertModel
 
 
 class Net(nn.Module):
