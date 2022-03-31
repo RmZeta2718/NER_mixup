@@ -34,10 +34,10 @@ def main():
     if hp.seed != 0:
         torch.manual_seed(hp.seed)
 
-    device = 'cuda:2' if torch.cuda.is_available() else 'cpu'
+    device = 'cuda:1' if torch.cuda.is_available() else 'cpu'
     # device = 'cpu'
 
-    model = Net(len(VOCAB), device, hp.finetuning).cuda(device)  # type: ignore
+    model = Net(len(VOCAB), device).cuda(device)  # type: ignore
     # model = nn.DataParallel(model)
 
     train_dataset = NerDataset(hp.trainset)
@@ -58,6 +58,8 @@ def main():
     criterion = nn.CrossEntropyLoss(ignore_index=0)
 
     for epoch in range(1, hp.n_epochs+1):
+        # eval(model, eval_iter, "test")
+        # exit()
         train(model, train_iter, optimizer, criterion)
 
         print(f"=========eval at epoch={epoch}=========")
@@ -72,6 +74,7 @@ def main():
 
 def train(model: nn.Module, iterator: data.DataLoader, optimizer: optim.Optimizer, criterion: nn.CrossEntropyLoss):
     model.train()
+
     for i, batch in enumerate(iterator):
         words, x, is_heads, tags, y, seqlens = batch
         _y = y  # for monitoring
@@ -79,10 +82,10 @@ def train(model: nn.Module, iterator: data.DataLoader, optimizer: optim.Optimize
 
         logits: torch.Tensor
         y: torch.Tensor
-        logits, y, _ = model(x, y)  # logits: (N, T, VOCAB), y: (N, T)
+        logits, y = model(x, y)  # logits: (N, T, VOCAB), y: (N, T)
 
         logits = logits.view(-1, logits.shape[-1])  # (N*T, VOCAB)
-        y = y.view(-1)  # (N*T,)
+        y = y.view(-1)  # (N*T, 1)
 
         loss: torch.Tensor = criterion(logits, y)
         loss.backward()
@@ -100,7 +103,7 @@ def train(model: nn.Module, iterator: data.DataLoader, optimizer: optim.Optimize
             print("seqlen:", seqlens[0])
             print("=======================")
 
-        if i % 50 == 0:  # monitoring
+        if i % 10 == 0 or i + 1 == len(iterator):  # monitoring
             progress_bar(i, len(iterator), f"step: {i} | loss: {loss.item()}")
 
 
@@ -109,10 +112,11 @@ def eval(model: nn.Module, iterator: data.DataLoader, f):
 
     Words, Is_heads, Tags, Y, Y_hat = [], [], [], [], []
     with torch.no_grad():
-        for i, batch in enumerate(iterator):
-            words, x, is_heads, tags, y, seqlens = batch
+        for i, (words, x, is_heads, tags, y, _) in enumerate(iterator):
 
-            _, _, y_hat = model(x, y)  # y_hat: (N, T)
+            logits, _ = model(x, y)  # logits: (N, T, VOCAB)
+            y_hat = logits.argmax(-1)  # y_hat: (N, T)
+            # op(logits.shape, y_hat.shape)
 
             Words.extend(words)
             Is_heads.extend(is_heads)
@@ -137,8 +141,7 @@ def eval(model: nn.Module, iterator: data.DataLoader, f):
         "temp", 'r').read().splitlines() if len(line) > 0])
 
     num_proposed = len(y_pred[y_pred > 1])
-    num_correct = (np.logical_and(y_true == y_pred, y_true > 1)
-                   ).astype(np.int).sum()  # type: ignore
+    num_correct = (np.logical_and(y_true == y_pred, y_true > 1)).astype(int).sum()
     num_gold = len(y_true[y_true > 1])
 
     print(f"num_proposed:{num_proposed}")
@@ -167,15 +170,15 @@ def eval(model: nn.Module, iterator: data.DataLoader, f):
         result = open("temp", "r").read()
         fout.write(f"{result}\n")
 
-        fout.write(f"precision={precision}\n")
-        fout.write(f"recall={recall}\n")
-        fout.write(f"f1={f1}\n")
+        fout.write(f"precision={precision:.5f}\n")
+        fout.write(f"recall={recall:.5f}\n")
+        fout.write(f"f1={f1:.5f}\n")
 
     os.remove("temp")
 
-    print("precision=%.2f" % precision)
-    print("recall=%.2f" % recall)
-    print("f1=%.2f" % f1)
+    print(f"precision={precision:.5f}\n")
+    print(f"recall={recall:.5f}\n")
+    print(f"f1={f1:.5f}\n")
     return precision, recall, f1
 
 

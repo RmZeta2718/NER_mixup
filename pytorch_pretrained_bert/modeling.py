@@ -396,7 +396,7 @@ class BertEncoder(nn.Module):
             hidden_states = layer_module(hidden_states, attention_mask)
             if output_all_encoded_layers:
                 all_encoder_layers.append(hidden_states)
-        if not output_all_encoded_layers:
+        if not output_all_encoded_layers:  # wj: do not save hidden_states on False
             all_encoder_layers.append(hidden_states)
         return all_encoder_layers
 
@@ -686,7 +686,7 @@ class BertModel(BertPreTrainedModel):
         self.encoder = BertEncoder(config)
         self.pooler = BertPooler(config)
         self.apply(self.init_bert_weights)
-        logging.info("initializing self-defined BERT")
+        logger.info("initializing self-defined BERT")
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, output_all_encoded_layers=True):
         if attention_mask is None:
@@ -715,7 +715,7 @@ class BertModel(BertPreTrainedModel):
                                       output_all_encoded_layers=output_all_encoded_layers)
         sequence_output = encoded_layers[-1]
         pooled_output = self.pooler(sequence_output)
-        if not output_all_encoded_layers:
+        if not output_all_encoded_layers:  # wj: encoded_layers contains only one elem in this case
             encoded_layers = encoded_layers[-1]
         return encoded_layers, pooled_output
 
