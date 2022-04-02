@@ -20,16 +20,21 @@ import torch.nn as nn
 
 
 class Net(nn.Module):
-    def __init__(self, vocab_size=None, device='cpu'):
+    def __init__(self, vocab_size=None, mixup=False, alpha=0.0, device='cpu'):
         super().__init__()
         self.bert: BertModel
-        self.bert = BertModel.from_pretrained('bert-base-cased')  # type: ignore
+        self.bert = BertModel.from_pretrained(
+            'bert-base-cased',
+            alpha=alpha,
+            device=device,  # for mixup data
+        )
 
         self.fc = nn.Linear(768, vocab_size)
 
-        self.device = device
+        self.mixup: bool = mixup
+        self.device: str = device
 
-    def forward(self, x, y, ):
+    def forward(self, x, y=None):
         '''
         x: (N, T). int64
         y: (N, T). int64
@@ -38,8 +43,16 @@ class Net(nn.Module):
         enc: (N, T, VOCAB)
         '''
         x = x.to(self.device)
-        y = y.to(self.device)
+        if y is not None:
+            y = y.to(self.device)
 
-        encoded_layer, _ = self.bert(x, output_all_encoded_layers=False)  # do not care pooled output
-        logits = self.fc(encoded_layer)  # (N, T, VOCAB)
-        return logits, y
+
+        if self.training:
+            encoded_layer, _, y_a, y_b, lam = self.bert(x, mixup=self.mixup, labels=y, output_all_encoded_layers=False)  # do not care pooled output
+            logits = self.fc(encoded_layer)  # (N, T, VOCAB)
+            return logits, y_a, y_b, lam
+        else:  # eval
+            encoded_layer, _ = self.bert(x, output_all_encoded_layers=False)
+            logits = self.fc(encoded_layer)  # (N, T, VOCAB)
+            return logits
+        

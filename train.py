@@ -1,17 +1,18 @@
-from utils import progress_bar
+import os
+import argparse
+import logging
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils import data
+import numpy as np
+from objprint import op
+
+from utils import progress_bar
 from model import Net
 from data_load import NerDataset, pad, VOCAB, tokenizer, tag2idx, idx2tag
-import os
-import numpy as np
-import argparse
-from objprint import op
-import logging
-
+from mixup import mixup_criterion
 
 def main():
     op.config(color=True, line_number=True, arg_name=True)
@@ -24,11 +25,11 @@ def main():
     parser.add_argument("--n_epochs", type=int, default=3)
     parser.add_argument("--finetuning", dest="finetuning", action="store_true")
     parser.add_argument("--logdir", type=str, default="checkpoints")
-    parser.add_argument("--trainset", type=str,
-                        default=f"{data_dir}/train.txt")
-    parser.add_argument("--validset", type=str,
-                        default=f"{data_dir}/valid.txt")
+    parser.add_argument("--trainset", type=str, default=f"{data_dir}/train.txt")
+    parser.add_argument("--validset", type=str, default=f"{data_dir}/valid.txt")
     parser.add_argument('--seed', type=int, default=0, help='random seed')
+    parser.add_argument("--mixup", dest="mixup", action="store_true")
+    parser.add_argument("--alpha", type=float, default=0.1)
     hp = parser.parse_args()
 
     if hp.seed != 0:
@@ -37,7 +38,7 @@ def main():
     device = 'cuda:1' if torch.cuda.is_available() else 'cpu'
     # device = 'cpu'
 
-    model = Net(len(VOCAB), device).cuda(device)  # type: ignore
+    model = Net(len(VOCAB), mixup=hp.mixup, alpha=hp.alpha, device=device).cuda(device)  # type: ignore
     # model = nn.DataParallel(model)
 
     train_dataset = NerDataset(hp.trainset)
@@ -82,12 +83,13 @@ def train(model: nn.Module, iterator: data.DataLoader, optimizer: optim.Optimize
 
         logits: torch.Tensor
         y: torch.Tensor
-        logits, y = model(x, y)  # logits: (N, T, VOCAB), y: (N, T)
+        logits, y_a, y_b, lam = model(x, y)  # logits: (N, T, VOCAB), y: (N, T)
 
         logits = logits.view(-1, logits.shape[-1])  # (N*T, VOCAB)
-        y = y.view(-1)  # (N*T, 1)
+        y_a = y_a.view(-1)  # (N*T, 1)
+        y_b = y_b.view(-1)  # (N*T, 1)
 
-        loss: torch.Tensor = criterion(logits, y)
+        loss: torch.Tensor = mixup_criterion(criterion, logits, y_a, y_b, lam)
         loss.backward()
 
         optimizer.step()
@@ -114,7 +116,7 @@ def eval(model: nn.Module, iterator: data.DataLoader, f):
     with torch.no_grad():
         for i, (words, x, is_heads, tags, y, _) in enumerate(iterator):
 
-            logits, _ = model(x, y)  # logits: (N, T, VOCAB)
+            logits = model(x)  # logits: (N, T, VOCAB)
             y_hat = logits.argmax(-1)  # y_hat: (N, T)
             # op(logits.shape, y_hat.shape)
 

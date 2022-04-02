@@ -27,12 +27,17 @@ import tarfile
 import tempfile
 import sys
 from io import open
+from typing import List
 
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss
+import numpy as np
 
 from .file_utils import cached_path
+import sys
+sys.path.append("..")
+from mixup import mixup_data
 
 logger = logging.getLogger(__name__)
 
@@ -385,20 +390,33 @@ class BertLayer(nn.Module):
 
 
 class BertEncoder(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, alpha=1.0, mixup_layers=None, device: str='cuda'):
         super(BertEncoder, self).__init__()
         layer = BertLayer(config)
         self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)])
 
-    def forward(self, hidden_states, attention_mask, output_all_encoded_layers=True):
-        all_encoder_layers = []
-        for layer_module in self.layer:
+        # wj: mixup
+        self.alpha: float = alpha
+        if mixup_layers is None:  # default layer idx
+            mixup_layers = [i for i in range(6, 12)]
+        self.mixup_layers: List[int] = mixup_layers
+        self.device: str = device  # for mixup only
+
+    def forward(self, hidden_states, attention_mask, mixup=False, labels=None, output_all_encoded_layers=True):
+        if mixup:
+            mix_id: int = np.random.choice(self.mixup_layers)  # randomly choose a mixup layer
+        all_encoder_layers, y_a, y_b, lam = [], None, None, None
+        for idx, layer_module in enumerate(self.layer):
+            if mixup:
+                assert labels is not None, "should have labels for mixup"
+                if idx == mix_id:  # type: ignore
+                    hidden_states, y_a, y_b, lam = mixup_data(hidden_states, labels, self.alpha, self.device)
             hidden_states = layer_module(hidden_states, attention_mask)
             if output_all_encoded_layers:
                 all_encoder_layers.append(hidden_states)
-        if not output_all_encoded_layers:  # wj: do not save hidden_states on False
+        if not output_all_encoded_layers:  # wj: save only the last layer on False
             all_encoder_layers.append(hidden_states)
-        return all_encoder_layers
+        return all_encoder_layers, y_a, y_b, lam  # mixup data
 
 
 class BertPooler(nn.Module):
@@ -680,15 +698,15 @@ class BertModel(BertPreTrainedModel):
     all_encoder_layers, pooled_output = model(input_ids, token_type_ids, input_mask)
     ```
     """
-    def __init__(self, config):
+    def __init__(self, config, alpha=0.0, mixup_layers=None, device="cpu"):
         super(BertModel, self).__init__(config)
         self.embeddings = BertEmbeddings(config)
-        self.encoder = BertEncoder(config)
+        self.encoder = BertEncoder(config, alpha=alpha, mixup_layers=mixup_layers, device=device)
         self.pooler = BertPooler(config)
         self.apply(self.init_bert_weights)
         logger.info("initializing self-defined BERT")
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None, output_all_encoded_layers=True):
+    def forward(self, input_ids, mixup=False, labels=None, token_type_ids=None, attention_mask=None, output_all_encoded_layers=True):
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
         if token_type_ids is None:
@@ -710,13 +728,17 @@ class BertModel(BertPreTrainedModel):
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
 
         embedding_output = self.embeddings(input_ids, token_type_ids)
-        encoded_layers = self.encoder(embedding_output,
+        encoded_layers, y_a, y_b, lam = self.encoder(embedding_output,
                                       extended_attention_mask,
+                                      mixup=mixup,
+                                      labels=labels,
                                       output_all_encoded_layers=output_all_encoded_layers)
         sequence_output = encoded_layers[-1]
         pooled_output = self.pooler(sequence_output)
         if not output_all_encoded_layers:  # wj: encoded_layers contains only one elem in this case
             encoded_layers = encoded_layers[-1]
+        if mixup:
+            return encoded_layers, pooled_output, y_a, y_b, lam  # mixup data
         return encoded_layers, pooled_output
 
 
