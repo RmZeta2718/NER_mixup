@@ -12,6 +12,8 @@ import argparse
 from objprint import op
 import logging
 
+from mixup import mixup_criterion
+
 
 def main():
     op.config(color=True, line_number=True, arg_name=True)
@@ -24,11 +26,11 @@ def main():
     parser.add_argument("--n_epochs", type=int, default=3)
     parser.add_argument("--finetuning", dest="finetuning", action="store_true")
     parser.add_argument("--logdir", type=str, default="checkpoints")
-    parser.add_argument("--trainset", type=str,
-                        default=f"{data_dir}/train.txt")
-    parser.add_argument("--validset", type=str,
-                        default=f"{data_dir}/valid.txt")
+    parser.add_argument("--trainset", type=str, default=f"{data_dir}/train.txt")
+    parser.add_argument("--validset", type=str, default=f"{data_dir}/valid.txt")
     parser.add_argument('--seed', type=int, default=0, help='random seed')
+    parser.add_argument("--alpha", type=float, default=0.1)
+    parser.add_argument("--mixup", dest="mixup", action="store_true")
     hp = parser.parse_args()
 
     if hp.seed != 0:
@@ -60,7 +62,7 @@ def main():
     for epoch in range(1, hp.n_epochs+1):
         # eval(model, eval_iter, "test")
         # exit()
-        train(model, train_iter, optimizer, criterion)
+        train(model, train_iter, optimizer, criterion, hp.mixup)
 
         print(f"=========eval at epoch={epoch}=========")
         if not os.path.exists(hp.logdir):
@@ -72,16 +74,28 @@ def main():
         print(f"weights were saved to {fname}.pt")
 
 
-def train(model: nn.Module, iterator: data.DataLoader, optimizer: optim.Optimizer, criterion: nn.CrossEntropyLoss):
+def train(model: nn.Module, iterator: data.DataLoader, optimizer: optim.Optimizer, criterion: nn.CrossEntropyLoss, mixup: bool):
     model.train()
 
     for i, batch in enumerate(iterator):
         words, x, is_heads, tags, y, seqlens = batch
         _y = y  # for monitoring
-        optimizer.zero_grad()
 
         logits: torch.Tensor
         y: torch.Tensor
+        if mixup:
+            optimizer.zero_grad()
+            logits, y_a, y_b, lam = model(x, y, mixup=True)
+            logits = logits.view(-1, logits.shape[-1])  # (N*T, VOCAB)
+            y_a = y_a.view(-1)  # (N*T, 1)
+            y_b = y_b.view(-1)  # (N*T, 1)
+            loss: torch.Tensor = mixup_criterion(criterion, logits, y_a, y_b, lam)
+            loss.backward()
+
+            optimizer.step()
+
+        # run original data
+        optimizer.zero_grad()
         logits, y = model(x, y)  # logits: (N, T, VOCAB), y: (N, T)
 
         logits = logits.view(-1, logits.shape[-1])  # (N*T, VOCAB)

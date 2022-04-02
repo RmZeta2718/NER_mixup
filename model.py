@@ -14,13 +14,14 @@ bert-base-cased config: {
 }
 """
 from pytorch_pretrained_bert import BertModel
+from mixup import mixup_data
 
 import torch
 import torch.nn as nn
 
 
 class Net(nn.Module):
-    def __init__(self, vocab_size=None, device='cpu'):
+    def __init__(self, vocab_size=None, device='cpu', alpha: float=1.0):
         super().__init__()
         self.bert: BertModel
         self.bert = BertModel.from_pretrained('bert-base-cased')  # type: ignore
@@ -28,8 +29,9 @@ class Net(nn.Module):
         self.fc = nn.Linear(768, vocab_size)
 
         self.device = device
+        self.alpha: float = alpha
 
-    def forward(self, x, y, ):
+    def forward(self, x, y, mixup: bool=False):
         '''
         x: (N, T). int64
         y: (N, T). int64
@@ -37,9 +39,15 @@ class Net(nn.Module):
         Returns
         enc: (N, T, VOCAB)
         '''
-        x = x.to(self.device)
-        y = y.to(self.device)
+        x, y = x.to(self.device), y.to(self.device)
 
         encoded_layer, _ = self.bert(x, output_all_encoded_layers=False)  # do not care pooled output
+
+        if mixup:
+            encoded_layer, y_a, y_b, lam = mixup_data(encoded_layer, y, self.alpha, self.device)
+
         logits = self.fc(encoded_layer)  # (N, T, VOCAB)
+
+        if mixup:
+            return logits, y_a, y_b, lam  # type: ignore
         return logits, y
