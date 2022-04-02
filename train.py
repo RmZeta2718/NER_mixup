@@ -38,7 +38,7 @@ def main():
     device = 'cuda:1' if torch.cuda.is_available() else 'cpu'
     # device = 'cpu'
 
-    model = Net(len(VOCAB), mixup=hp.mixup, alpha=hp.alpha, device=device).cuda(device)  # type: ignore
+    model = Net(len(VOCAB), alpha=hp.alpha, device=device).cuda(device)  # type: ignore
     # model = nn.DataParallel(model)
 
     train_dataset = NerDataset(hp.trainset)
@@ -61,7 +61,7 @@ def main():
     for epoch in range(1, hp.n_epochs+1):
         # eval(model, eval_iter, "test")
         # exit()
-        train(model, train_iter, optimizer, criterion)
+        train(model, train_iter, optimizer, criterion, hp.mixup, device)
 
         print(f"=========eval at epoch={epoch}=========")
         if not os.path.exists(hp.logdir):
@@ -73,23 +73,37 @@ def main():
         print(f"weights were saved to {fname}.pt")
 
 
-def train(model: nn.Module, iterator: data.DataLoader, optimizer: optim.Optimizer, criterion: nn.CrossEntropyLoss):
+def train(model: nn.Module, iterator: data.DataLoader, optimizer: optim.Optimizer, criterion: nn.CrossEntropyLoss, mixup: bool, device):
     model.train()
 
     for i, batch in enumerate(iterator):
         words, x, is_heads, tags, y, seqlens = batch
         _y = y  # for monitoring
-        optimizer.zero_grad()
+        x, y = x.to(device), y.to(device)
 
         logits: torch.Tensor
         y: torch.Tensor
-        logits, y_a, y_b, lam = model(x, y)  # logits: (N, T, VOCAB), y: (N, T)
+        if mixup:  # augment data
+            optimizer.zero_grad()
+            logits, y_a, y_b, lam = model(x, y, mixup=True)  # logits: (N, T, VOCAB), y: (N, T)
+
+            logits = logits.view(-1, logits.shape[-1])  # (N*T, VOCAB)
+            y_a = y_a.view(-1)  # (N*T, 1)
+            y_b = y_b.view(-1)  # (N*T, 1)
+
+            loss: torch.Tensor = mixup_criterion(criterion, logits, y_a, y_b, lam)
+            loss.backward()
+
+            optimizer.step()
+
+        # run original data
+        optimizer.zero_grad()
+        logits, y_a, y_b, lam = model(x)  # logits: (N, T, VOCAB), y: (N, T)
 
         logits = logits.view(-1, logits.shape[-1])  # (N*T, VOCAB)
-        y_a = y_a.view(-1)  # (N*T, 1)
-        y_b = y_b.view(-1)  # (N*T, 1)
+        y = y.view(-1)  # (N*T, 1)
 
-        loss: torch.Tensor = mixup_criterion(criterion, logits, y_a, y_b, lam)
+        loss = criterion(logits, y)
         loss.backward()
 
         optimizer.step()

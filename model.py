@@ -20,7 +20,7 @@ import torch.nn as nn
 
 
 class Net(nn.Module):
-    def __init__(self, vocab_size=None, mixup=False, alpha=0.0, device='cpu'):
+    def __init__(self, vocab_size=None, alpha=0.0, device='cpu'):
         super().__init__()
         self.bert: BertModel
         self.bert = BertModel.from_pretrained(
@@ -31,10 +31,9 @@ class Net(nn.Module):
 
         self.fc = nn.Linear(768, vocab_size)
 
-        self.mixup: bool = mixup
         self.device: str = device
 
-    def forward(self, x, y=None):
+    def forward(self, x, y=None, mixup: bool=False):
         '''
         x: (N, T). int64
         y: (N, T). int64
@@ -48,7 +47,11 @@ class Net(nn.Module):
 
 
         if self.training:
-            encoded_layer, _, y_a, y_b, lam = self.bert(x, mixup=self.mixup, labels=y, output_all_encoded_layers=False)  # do not care pooled output
+            y_a, y_b, lam = None, None, None
+            if mixup:
+                encoded_layer, _, y_a, y_b, lam = self.bert(x, mixup=mixup, labels=y, output_all_encoded_layers=False)  # do not care pooled output
+            else:
+                encoded_layer, _ = self.bert(x, output_all_encoded_layers=False)
             logits = self.fc(encoded_layer)  # (N, T, VOCAB)
             return logits, y_a, y_b, lam
         else:  # eval
