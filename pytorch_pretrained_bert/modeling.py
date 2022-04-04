@@ -33,6 +33,9 @@ from torch import nn
 from torch.nn import CrossEntropyLoss
 
 from .file_utils import cached_path
+import sys
+sys.path.append("..")
+from mixup import mixup_data
 
 logger = logging.getLogger(__name__)
 
@@ -611,7 +614,7 @@ class BertModel(BertPreTrainedModel):
     all_encoder_layers, pooled_output = model(input_ids, token_type_ids, input_mask)
     ```
     """
-    def __init__(self, config):
+    def __init__(self, config, alpha=1.0, device="cpu"):
         super(BertModel, self).__init__(config)
         self.embeddings = BertEmbeddings(config)
         self.encoder = BertEncoder(config)
@@ -619,7 +622,10 @@ class BertModel(BertPreTrainedModel):
         self.apply(self.init_bert_weights)
         logger.info("initializing self-defined BERT")
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None, output_all_encoded_layers=True):
+        self.alpha: float = alpha
+        self.device: str = device
+
+    def forward(self, input_ids, mixup: bool=False, y=None, token_type_ids=None, attention_mask=None, output_all_encoded_layers=True):
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
         if token_type_ids is None:
@@ -641,6 +647,9 @@ class BertModel(BertPreTrainedModel):
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
 
         embedding_output = self.embeddings(input_ids, token_type_ids)
+        y_a, y_b, lam = None, None, None
+        if mixup:
+            embedding_output, y_a, y_b, lam = mixup_data(embedding_output, y, self.alpha, self.device)
         encoded_layers = self.encoder(embedding_output,
                                       extended_attention_mask,
                                       output_all_encoded_layers=output_all_encoded_layers)
@@ -648,4 +657,6 @@ class BertModel(BertPreTrainedModel):
         pooled_output = self.pooler(sequence_output)
         if not output_all_encoded_layers:  # wj: encoded_layers contains only one elem in this case
             encoded_layers = encoded_layers[-1]
+        if mixup:
+            return encoded_layers, pooled_output, y_a, y_b, lam
         return encoded_layers, pooled_output

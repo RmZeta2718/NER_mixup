@@ -41,10 +41,14 @@ class Net(nn.Module):
         '''
         x, y = x.to(self.device), y.to(self.device)
 
-        encoded_layer, _ = self.bert(x, output_all_encoded_layers=False)  # do not care pooled output
-
         if mixup:
-            encoded_layer, y_a, y_b, lam = mixup_data(encoded_layer, y, self.alpha, self.device)
+            encoded_layer, _, y_a, y_b, lam = self.bert(x, mixup=True, y=y, output_all_encoded_layers=False)  # do not care pooled output
+        else:
+            encoded_layer, _, = self.bert(x, output_all_encoded_layers=False)  # do not care pooled output
+
+
+        # if mixup:
+        #     encoded_layer, y_a, y_b, lam = mixup_data(encoded_layer, y, self.alpha, self.device)
 
         logits = self.fc(encoded_layer)  # (N, T, VOCAB)
 

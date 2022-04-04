@@ -31,12 +31,13 @@ def main():
     parser.add_argument('--seed', type=int, default=0, help='random seed')
     parser.add_argument("--alpha", type=float, default=0.1)
     parser.add_argument("--mixup", dest="mixup", action="store_true")
+    parser.add_argument("--original", dest="original", action="store_true")
     hp = parser.parse_args()
 
     if hp.seed != 0:
         torch.manual_seed(hp.seed)
 
-    device = 'cuda:1' if torch.cuda.is_available() else 'cpu'
+    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
     # device = 'cpu'
 
     model = Net(len(VOCAB), device).cuda(device)  # type: ignore
@@ -62,7 +63,7 @@ def main():
     for epoch in range(1, hp.n_epochs+1):
         # eval(model, eval_iter, "test")
         # exit()
-        train(model, train_iter, optimizer, criterion, hp.mixup)
+        train(model, train_iter, optimizer, criterion, hp.mixup, hp.original)
 
         print(f"=========eval at epoch={epoch}=========")
         if not os.path.exists(hp.logdir):
@@ -74,7 +75,7 @@ def main():
         print(f"weights were saved to {fname}.pt")
 
 
-def train(model: nn.Module, iterator: data.DataLoader, optimizer: optim.Optimizer, criterion: nn.CrossEntropyLoss, mixup: bool):
+def train(model: nn.Module, iterator: data.DataLoader, optimizer: optim.Optimizer, criterion: nn.CrossEntropyLoss, mixup: bool, original: bool):
     model.train()
 
     for i, batch in enumerate(iterator):
@@ -95,16 +96,17 @@ def train(model: nn.Module, iterator: data.DataLoader, optimizer: optim.Optimize
             optimizer.step()
 
         # run original data
-        optimizer.zero_grad()
-        logits, y = model(x, y)  # logits: (N, T, VOCAB), y: (N, T)
+        if not mixup or original:  # no mixup: directly run, `original` flag on: run original on mixup
+            optimizer.zero_grad()
+            logits, y = model(x, y)  # logits: (N, T, VOCAB), y: (N, T)
 
-        logits = logits.view(-1, logits.shape[-1])  # (N*T, VOCAB)
-        y = y.view(-1)  # (N*T, 1)
+            logits = logits.view(-1, logits.shape[-1])  # (N*T, VOCAB)
+            y = y.view(-1)  # (N*T, 1)
 
-        loss: torch.Tensor = criterion(logits, y)
-        loss.backward()
+            loss: torch.Tensor = criterion(logits, y)
+            loss.backward()
 
-        optimizer.step()
+            optimizer.step()
 
         if i == 0:
             print("=====sanity check======")
