@@ -36,7 +36,7 @@ idx2tag = {idx: tag for idx, tag in enumerate(VOCAB)}
 
 
 class NerDataset(data.Dataset):
-    def __init__(self, fpath):
+    def __init__(self, fpath, data_ratio: float=1.0):
         """
         fpath: [train|valid|test].txt
         """
@@ -48,6 +48,9 @@ class NerDataset(data.Dataset):
             sents.append(["[CLS]"] + words + ["[SEP]"])
             tags_li.append(["<PAD>"] + tags + ["<PAD>"])
         self.sents, self.tags_li = sents, tags_li
+        length = int(len(self.sents) * data_ratio)
+        print(len(self.sents), length)
+        self.sents, self.tags_li = self.sents[:length], self.tags_li[:length]
 
     def __len__(self):
         return len(self.sents)

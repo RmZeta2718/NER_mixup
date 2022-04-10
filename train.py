@@ -32,6 +32,7 @@ def main():
     parser.add_argument("--alpha", type=float, default=0.1)
     parser.add_argument("--mixup", dest="mixup", action="store_true")
     parser.add_argument("--original", dest="original", action="store_true")
+    parser.add_argument("--data_ratio", type=float, default=1.0)
     hp = parser.parse_args()
 
     if hp.seed != 0:
@@ -43,7 +44,7 @@ def main():
     model = Net(len(VOCAB), device).cuda(device)  # type: ignore
     # model = nn.DataParallel(model)
 
-    train_dataset = NerDataset(hp.trainset)
+    train_dataset = NerDataset(hp.trainset, hp.data_ratio)
     eval_dataset = NerDataset(hp.validset)
 
     train_iter = data.DataLoader(dataset=train_dataset,
