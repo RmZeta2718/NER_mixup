@@ -24,7 +24,6 @@ def main():
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--n_epochs", type=int, default=3)
-    parser.add_argument("--finetuning", dest="finetuning", action="store_true")
     parser.add_argument("--logdir", type=str, default="checkpoints")
     parser.add_argument("--trainset", type=str, default=f"{data_dir}/train.txt")
     parser.add_argument("--validset", type=str, default=f"{data_dir}/valid.txt")
@@ -33,6 +32,7 @@ def main():
     parser.add_argument("--mixup", dest="mixup", action="store_true")
     parser.add_argument("--original", dest="original", action="store_true")
     parser.add_argument("--data_ratio", type=float, default=1.0)
+    parser.add_argument("--save", dest="save", action="store_true")
     hp = parser.parse_args()
 
     if hp.seed != 0:
@@ -72,7 +72,8 @@ def main():
         fname = os.path.join(hp.logdir, str(epoch))
         precision, recall, f1 = eval(model, eval_iter, fname)
 
-        torch.save(model.state_dict(), f"{fname}.pt")
+        if hp.save:
+            torch.save(model.state_dict(), f"{fname}.pt")
         print(f"weights were saved to {fname}.pt")
 
 
